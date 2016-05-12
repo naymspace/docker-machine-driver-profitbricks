@@ -206,7 +206,7 @@ func (d *Driver) Create() error {
 			Cores: d.Cores,
 		},
 	}
-	server := profitbricks.CreateServer(dc.Id, serverrequest)
+	server := profitbricks.CreateServer(d.DatacenterId, serverrequest)
 
 	if server.Resp.StatusCode == 202 {
 		log.Info("Server Created")
@@ -233,7 +233,7 @@ func (d *Driver) Create() error {
 		},
 	}
 
-	volume := profitbricks.CreateVolume(dc.Id, volumerequest)
+	volume := profitbricks.CreateVolume(d.DatacenterId, volumerequest)
 
 	if volume.Resp.StatusCode == 202 {
 		log.Info("Volume Created")
@@ -246,7 +246,7 @@ func (d *Driver) Create() error {
 	d.waitTillProvisioned(strings.Join(volume.Resp.Headers["Location"], ""))
 	d.VolumeId = volume.Id
 
-	attachresponse := profitbricks.AttachVolume(dc.Id, server.Id, volume.Id)
+	attachresponse := profitbricks.AttachVolume(d.DatacenterId, server.Id, volume.Id)
 
 	if attachresponse.Resp.StatusCode == 202 {
 		log.Info("Attached a volume to a server.")
@@ -266,7 +266,7 @@ func (d *Driver) Create() error {
 		},
 	}
 
-	lan := profitbricks.CreateLan(dc.Id, lanrequest)
+	lan := profitbricks.CreateLan(d.DatacenterId, lanrequest)
 
 	if lan.Resp.StatusCode == 202 {
 		log.Info("LAN Created")
@@ -315,7 +315,7 @@ func (d *Driver) Create() error {
 		},
 	}
 
-	nic := profitbricks.CreateNic(dc.Id, server.Id, nicrequest)
+	nic := profitbricks.CreateNic(d.DatacenterId, server.Id, nicrequest)
 
 	if nic.Resp.StatusCode == 202 {
 		log.Info("NIC created")
@@ -338,7 +338,7 @@ func (d *Driver) Create() error {
 		BootVolume: &bootVolume,
 	}
 
-	serverpatchresponse := profitbricks.PatchServer(dc.Id, server.Id, serverprops)
+	serverpatchresponse := profitbricks.PatchServer(d.DatacenterId, server.Id, serverprops)
 
 	if serverpatchresponse.Resp.StatusCode == 202 {
 		log.Info("Updated server's boot image")
@@ -351,7 +351,7 @@ func (d *Driver) Create() error {
 	d.waitTillProvisioned(strings.Join(serverpatchresponse.Resp.Headers["Location"], ""))
 
 	//Get server data
-	server = profitbricks.GetServer(dc.Id, server.Id)
+	server = profitbricks.GetServer(d.DatacenterId, server.Id)
 
 	d.IPAddress = server.Entities["nics"].Items[0].Properties["ips"].([]interface{})[0].(string)
 
