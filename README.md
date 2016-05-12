@@ -1,6 +1,12 @@
 # ProfitBricks Docker Machine Driver
 
-This is the official Docker Machine driver for ProfitBricks
+This is a fork of the [official Docker Machine driver for ProfitBricks](https://github.com/profitbricks/docker-machine-driver-profitbricks)
+
+## Changes to upstream repository
+* Add 'profitbricks-datacenter' option to specify an existing datacenter
+  * Instead of creating a new datacenter, use an already existing datacenter for the created server.
+  * When removing the server, only delete the created server and the created volume instead of the whole datacenter.
+* Minor fixes
 
 ## Install and Run the ProfitBricks Docker Machine Driver
 
@@ -10,7 +16,7 @@ Next you will need to run the following commands to install the ProfitBricks Doc
 
     go get github.com/profitbricks/docker-machine-driver-profitbricks
     cd $GOPATH/src/github.com/profitbricks/docker-machine-driver-profitbricks
-    make install  
+    make install
 
 ## Create a ProfitBricks machine
 
@@ -56,14 +62,14 @@ To get detailed information about the possible options,  run the command:
 
 ```
 Usage: Usage: docker-machine create [OPTIONS] [arg...]
-       
+
        Create a machine
-       
+
        Description:
           Run 'docker-machine create --driver name' to include the create flags for that driver in the help text.
-       
+
        Options:
-          
+
           --driver, -d "none"								Driver to create machine with.
           --engine-env [--engine-env option --engine-env option]			Specify environment variables to set in the engine
           --engine-insecure-registry [--engine-insecure-registry option --engine-insecure-registry option]	Specify insecure registries to allow with the created engine
@@ -81,6 +87,7 @@ Usage: Usage: docker-machine create [OPTIONS] [arg...]
           --profitbricks-password 							profitbricks password [$PROFITBRICKS_PASSWORD]
           --profitbricks-ram "2048"							profitbricks ram (1024, 2048, 3072, 4096, etc.) [$PROFITBRICKS_RAM]
           --profitbricks-username 							profitbricks username [$PROFITBRICKS_USERNAME]
+          --profitbricks-datacenter             profitbricks datacenter name - will create a new datacenter if not specified
           --swarm									Configure Machine with Swarm
           --swarm-addr 								addr to advertise for Swarm (default: detect and use the machine IP)
           --swarm-discovery 								Discovery service to use with Swarm
@@ -89,7 +96,7 @@ Usage: Usage: docker-machine create [OPTIONS] [arg...]
           --swarm-master								Configure Machine to be a Swarm master
           --swarm-opt [--swarm-opt option --swarm-opt option]				Define arbitrary flags for swarm
           --swarm-strategy "spread"							Define a default scheduling strategy for Swarm
-          --tls-san [--tls-san option --tls-san option]				Support extra SANs for TLS certs   
+          --tls-san [--tls-san option --tls-san option]				Support extra SANs for TLS certs
 ```
 
 To list the machines you have created, use the command:
@@ -100,12 +107,12 @@ It will return information about your machines, similar to this:
 
 ```
 NAME           ACTIVE   DRIVER         STATE     URL                         SWARM   DOCKER    ERRORS
-default        -        virtualbox     Running   tcp://192.168.99.100:2376           v1.10.2   
-test-machine   -        profitbricks   Running   tcp://162.254.26.156:2376           v1.10.3   
+default        -        virtualbox     Running   tcp://192.168.99.100:2376           v1.10.2
+test-machine   -        profitbricks   Running   tcp://162.254.26.156:2376           v1.10.3
 
 ```
 
-# Create a Swarm of ProfitBricks Machines 
+# Create a Swarm of ProfitBricks Machines
 
 Before you create a swarm of ProfitBricks machines, run this command:
 
