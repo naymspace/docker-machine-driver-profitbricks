@@ -289,10 +289,10 @@ func (d *Driver) Create() error {
 
 	ipblockresp := profitbricks.ReserveIpBlock(ipblockreq)
 
-	if lan.Resp.StatusCode == 202 {
+	if ipblockresp.Resp.StatusCode == 202 {
 		log.Info("IP Block Reserved")
 	} else {
-		log.Error("Error while reserving an IP Block " + string(lan.Resp.Body))
+		log.Error("Error while reserving an IP Block " + string(ipblockresp.Resp.Body))
 		d.Remove()
 		return errors.New("Rolling back...")
 	}
