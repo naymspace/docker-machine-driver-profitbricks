@@ -17,19 +17,21 @@ import (
 
 type Driver struct {
 	*drivers.BaseDriver
-	URL          string
-	Username     string
-	Password     string
-	ServerId     string
-	Ram          int
-	Cores        int
-	SSHKey       string
-	DatacenterId string
-	DiskSize     int
-	DiskType     string
-	Image        string
-	Size         int
-	Location     string
+	URL            string
+	Username       string
+	Password       string
+	ServerId       string
+	VolumeId       string
+	Ram            int
+	Cores          int
+	SSHKey         string
+	DatacenterId   string
+	DatacenterName string
+	DiskSize       int
+	DiskType       string
+	Image          string
+	Size           int
+	Location       string
 }
 
 const (
@@ -93,6 +95,11 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Value:  "HDD",
 			Usage:  "profitbricks disk type (HDD, SSD)",
 		},
+		mcnflag.StringFlag{
+			EnvVar: "PROFITBRICKS_DATACENTER",
+			Name:   "profitbricks-datacenter",
+			Usage:  "profitbricks datacenter name - will create a new datacenter if not specified",
+		},
 	}
 }
 
@@ -128,6 +135,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Ram = flags.Int("profitbricks-ram")
 	d.Location = flags.String("profitbricks-location")
 	d.DiskType = flags.String("profitbricks-disk-type")
+	d.DatacenterName = flags.String("profitbricks-datacenter")
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmHost = flags.String("swarm-host")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
@@ -147,6 +155,9 @@ func (d *Driver) PreCreateCheck() error {
 	if d.getImageId(d.Image) == "" {
 		return fmt.Errorf("The image %s %s %s", d.Image, d.Location, "does not exist.")
 	}
+	if d.DatacenterName != "" && d.getDatacenterId(d.DatacenterName) == "" {
+		return fmt.Errorf("The datacenter %s %s", d.DatacenterName, "does not exist.")
+	}
 	return nil
 }
 
@@ -162,26 +173,30 @@ func (d *Driver) Create() error {
 		}
 	}
 
-	//Create a PB Datacenter
-	dcrequest := profitbricks.CreateDatacenterRequest{
-		DCProperties: profitbricks.DCProperties{
-			Name:     d.MachineName,
-			Location: d.Location,
-		},
-	}
-
-	dc := profitbricks.CreateDatacenter(dcrequest)
-
-	if dc.Resp.StatusCode == 202 {
-		log.Info("Datacenter Created")
+	// Use existing datacenter if specified, create a PB Datacenter otherwise
+	if d.DatacenterName != "" {
+		d.DatacenterId = d.getDatacenterId(d.DatacenterName)
 	} else {
-		return errors.New("Error while creating DC: " + string(dc.Resp.Body))
+		dcrequest := profitbricks.CreateDatacenterRequest{
+			DCProperties: profitbricks.DCProperties{
+				Name:     d.MachineName,
+				Location: d.Location,
+			},
+		}
 
+		dc := profitbricks.CreateDatacenter(dcrequest)
+
+		if dc.Resp.StatusCode == 202 {
+			log.Info("Datacenter Created")
+		} else {
+			return errors.New("Error while creating DC: " + string(dc.Resp.Body))
+
+		}
+
+		d.DatacenterId = dc.Id
+
+		d.waitTillProvisioned(strings.Join(dc.Resp.Headers["Location"], ""))
 	}
-
-	d.DatacenterId = dc.Id
-
-	d.waitTillProvisioned(strings.Join(dc.Resp.Headers["Location"], ""))
 
 	//Create a PB Sever
 	serverrequest := profitbricks.CreateServerRequest{
@@ -229,6 +244,7 @@ func (d *Driver) Create() error {
 	}
 
 	d.waitTillProvisioned(strings.Join(volume.Resp.Headers["Location"], ""))
+	d.VolumeId = volume.Id
 
 	attachresponse := profitbricks.AttachVolume(dc.Id, server.Id, volume.Id)
 
@@ -350,11 +366,31 @@ func (d *Driver) Restart() error {
 	}
 	return nil
 }
+
 func (d *Driver) Remove() error {
 	d.setPB()
 
-	resp := profitbricks.DeleteDatacenter(d.DatacenterId)
-	d.waitTillProvisioned(strings.Join(resp.Headers["Location"], ""))
+	// Delete the whole datacenter if no existing datacenter was specified, or delete specific server and volume otherwise
+	if d.DatacenterName == "" {
+		resp := profitbricks.DeleteDatacenter(d.DatacenterId)
+		d.waitTillProvisioned(strings.Join(resp.Headers["Location"], ""))
+		if resp.StatusCode > 299 {
+			return errors.New(string(resp.Body))
+		}
+	} else {
+		serverResp := profitbricks.DeleteServer(d.DatacenterId, d.ServerId)
+		d.waitTillProvisioned(strings.Join(serverResp.Headers["Location"], ""))
+		if serverResp.StatusCode > 299 {
+			log.Error("Error while deleting server: " + string(serverResp.Body))
+		}
+
+		volumeResp := profitbricks.DeleteVolume(d.DatacenterId, d.VolumeId)
+		d.waitTillProvisioned(strings.Join(volumeResp.Headers["Location"], ""))
+		if volumeResp.StatusCode > 299 {
+			log.Error("Error while deleting volume: " + string(volumeResp.Body))
+		}
+	}
+
 	ipblocks := profitbricks.ListIpBlocks()
 
 	for i := 0; i < len(ipblocks.Items); i++ {
@@ -366,10 +402,6 @@ func (d *Driver) Remove() error {
 				}
 			}
 		}
-	}
-
-	if resp.StatusCode > 299 {
-		return errors.New(string(resp.Body))
 	}
 
 	return nil
@@ -426,6 +458,7 @@ func (d *Driver) Kill() error {
 	}
 	return nil
 }
+
 func (d *Driver) GetIP() (string, error) {
 	d.setPB()
 	server := profitbricks.GetServer(d.DatacenterId, d.ServerId)
@@ -514,3 +547,17 @@ func (d *Driver) getImageId(imageName string) string {
 	}
 	return ""
 }
+
+func (d *Driver) getDatacenterId(datacenterName string) string {
+	d.setPB()
+
+	datacenters := profitbricks.ListDatacenters()
+
+	for i := 0; i < len(datacenters.Items); i++ {
+		if datacenters.Items[i].Properties["name"] == datacenterName && datacenters.Items[i].Properties["location"] == d.Location {
+			return datacenters.Items[i].Id
+		}
+	}
+	return ""
+}
+
