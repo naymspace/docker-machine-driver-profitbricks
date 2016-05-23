@@ -34,6 +34,7 @@ type Driver struct {
 	Location       string
 	LanId          string
 	LanIp          string
+	LanDhcp        bool
 }
 
 const (
@@ -112,6 +113,11 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "profitbricks-lan-ip",
 			Usage:  "IP address to assign to created NIC - will create a new IP address if not specified",
 		},
+		mcnflag.BoolFlag{
+			EnvVar: "PROFITBRICKS_LAN_NO_DHCP",
+			Name:   "profitbricks-lan-no-dhcp",
+			Usage:  "disable DHCP on the servers NIC - default: enabled",
+		},
 	}
 }
 
@@ -150,6 +156,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.DatacenterName = flags.String("profitbricks-datacenter")
 	d.LanId = flags.String("profitbricks-lan-id")
 	d.LanIp = flags.String("profitbricks-lan-ip")
+	d.LanDhcp = !flags.Bool("profitbricks-lan-no-dhcp")
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmHost = flags.String("swarm-host")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
@@ -342,6 +349,7 @@ func (d *Driver) Create() error {
 			Name: d.MachineName + " - NIC",
 			Lan:  d.LanId,
 			Ips:  []string{d.LanIp},
+			Dhcp: d.LanDhcp,
 		},
 	}
 
