@@ -6,6 +6,8 @@ This is a fork of the [official Docker Machine driver for ProfitBricks](https://
 * Add 'profitbricks-datacenter' option to specify an existing datacenter
   * Instead of creating a new datacenter, use an already existing datacenter for the created server.
   * When removing the server, only delete the created server and the created volume instead of the whole datacenter.
+* Add 'profitbricks-lan-id' option to specify an existing LAN to connect the created server to
+* Add 'profitbricks-lan-ip' option to specify an IP address to assign to the created NIC
 * Minor fixes
 
 ## Install and Run the ProfitBricks Docker Machine Driver
@@ -88,6 +90,8 @@ Usage: Usage: docker-machine create [OPTIONS] [arg...]
           --profitbricks-ram "2048"							profitbricks ram (1024, 2048, 3072, 4096, etc.) [$PROFITBRICKS_RAM]
           --profitbricks-username 							profitbricks username [$PROFITBRICKS_USERNAME]
           --profitbricks-datacenter             profitbricks datacenter name - will create a new datacenter if not specified
+          --profitbricks-lan-id                 profitbricks LAN id to connect server to - will create a new LAN if not specified
+          --profitbricks-lan-ip                 IP address to assign to created NIC - will create a new IP address if not specified
           --swarm									Configure Machine with Swarm
           --swarm-addr 								addr to advertise for Swarm (default: detect and use the machine IP)
           --swarm-discovery 								Discovery service to use with Swarm

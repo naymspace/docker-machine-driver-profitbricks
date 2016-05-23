@@ -32,6 +32,8 @@ type Driver struct {
 	Image          string
 	Size           int
 	Location       string
+	LanId          string
+	LanIp          string
 }
 
 const (
@@ -100,6 +102,16 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "profitbricks-datacenter",
 			Usage:  "profitbricks datacenter name - will create a new datacenter if not specified",
 		},
+		mcnflag.StringFlag{
+			EnvVar: "PROFITBRICKS_LAN_ID",
+			Name:   "profitbricks-lan-id",
+			Usage:  "profitbricks LAN id to connect server to - will create a new LAN if not specified",
+		},
+		mcnflag.StringFlag{
+			EnvVar: "PROFITBRICKS_LAN_IP",
+			Name:   "profitbricks-lan-ip",
+			Usage:  "IP address to assign to created NIC - will create a new IP address if not specified",
+		},
 	}
 }
 
@@ -136,6 +148,8 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Location = flags.String("profitbricks-location")
 	d.DiskType = flags.String("profitbricks-disk-type")
 	d.DatacenterName = flags.String("profitbricks-datacenter")
+	d.LanId = flags.String("profitbricks-lan-id")
+	d.LanIp = flags.String("profitbricks-lan-ip")
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmHost = flags.String("swarm-host")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
@@ -157,6 +171,13 @@ func (d *Driver) PreCreateCheck() error {
 	}
 	if d.DatacenterName != "" && d.getDatacenterId(d.DatacenterName) == "" {
 		return fmt.Errorf("The datacenter %s %s", d.DatacenterName, "does not exist.")
+	}
+	if d.LanId != "" && d.DatacenterName == "" {
+		return fmt.Errorf("Datacenter name must be provided when providing a LAN id.")
+	} else {
+		if d.getLanId(d.getDatacenterId(d.DatacenterName), d.LanId) == "" {
+			return fmt.Errorf("The LAN %s %s", d.LanId, "does not exist.")
+		}
 	}
 	return nil
 }
@@ -259,59 +280,68 @@ func (d *Driver) Create() error {
 
 	d.waitTillProvisioned(strings.Join(attachresponse.Resp.Headers["Location"], ""))
 
-	lanrequest := profitbricks.CreateLanRequest{
-		LanProperties: profitbricks.LanProperties{
-			Public: true,
-			Name:   d.MachineName + " Lan",
-		},
+	// Create a new LAN if no LAN id was specified
+	if d.LanId == "" {
+		lanrequest := profitbricks.CreateLanRequest{
+			LanProperties: profitbricks.LanProperties{
+				Public: true,
+				Name:   d.MachineName + " Lan",
+			},
+		}
+
+		lan := profitbricks.CreateLan(d.DatacenterId, lanrequest)
+		d.LanId = lan.Id
+
+		if lan.Resp.StatusCode == 202 {
+			log.Info("LAN Created")
+		} else {
+			log.Error("Error while creating a LAN " + string(lan.Resp.Body))
+			d.Remove()
+			return errors.New("Rolling back...")
+		}
+
+		d.waitTillProvisioned(strings.Join(lan.Resp.Headers["Location"], ""))
 	}
-
-	lan := profitbricks.CreateLan(d.DatacenterId, lanrequest)
-
-	if lan.Resp.StatusCode == 202 {
-		log.Info("LAN Created")
-	} else {
-		log.Error("Error while creating a LAN " + string(lan.Resp.Body))
-		d.Remove()
-		return errors.New("Rolling back...")
-	}
-
-	d.waitTillProvisioned(strings.Join(lan.Resp.Headers["Location"], ""))
 
 	d.ServerId = server.Id
 
-	ipblockreq := profitbricks.IPBlockReserveRequest{
-		IPBlockProperties: profitbricks.IPBlockProperties{
-			Size:     1,
-			Location: d.Location,
-		},
-	}
+	// Reserve a new IP address if no address was specified
+	if d.LanIp == "" {
+		ipblockreq := profitbricks.IPBlockReserveRequest{
+			IPBlockProperties: profitbricks.IPBlockProperties{
+				Size:     1,
+				Location: d.Location,
+			},
+		}
 
-	ipblockresp := profitbricks.ReserveIpBlock(ipblockreq)
+		ipblockresp := profitbricks.ReserveIpBlock(ipblockreq)
 
-	if ipblockresp.Resp.StatusCode == 202 {
-		log.Info("IP Block Reserved")
-	} else {
-		log.Error("Error while reserving an IP Block " + string(ipblockresp.Resp.Body))
-		d.Remove()
-		return errors.New("Rolling back...")
-	}
+		if ipblockresp.Resp.StatusCode == 202 {
+			log.Info("IP Block Reserved")
+		} else {
+			log.Error("Error while reserving an IP Block " + string(ipblockresp.Resp.Body))
+			d.Remove()
+			return errors.New("Rolling back...")
+		}
 
-	d.waitTillProvisioned(strings.Join(ipblockresp.Resp.Headers["Location"], ""))
+		d.waitTillProvisioned(strings.Join(ipblockresp.Resp.Headers["Location"], ""))
 
-	ip := ipblockresp.Properties["ips"].([]interface{})[0].(string)
+		ip := ipblockresp.Properties["ips"].([]interface{})[0].(string)
 
-	if ip == "" {
-		log.Error("IP Address could not be assigned")
-		d.Remove()
-		return errors.New("Rolling back...")
+		if ip == "" {
+			log.Error("IP Address could not be assigned")
+			d.Remove()
+			return errors.New("Rolling back...")
+		}
+
+		d.LanIp = ip
 	}
 
 	nicrequest := profitbricks.NicCreateRequest{
 		NicProperties: profitbricks.NicProperties{
 			Name: d.MachineName + " - NIC",
-			Lan:  lan.Id,
-			Ips:  []string{ip},
+			Lan:  d.LanId,
+			Ips:  []string{d.LanIp},
 		},
 	}
 
@@ -561,3 +591,15 @@ func (d *Driver) getDatacenterId(datacenterName string) string {
 	return ""
 }
 
+func (d *Driver) getLanId(datacenterId string, lanId string) string {
+	d.setPB()
+
+	lans := profitbricks.ListLans(datacenterId)
+
+	for i := 0; i < len(lans.Items); i++ {
+		if lans.Items[i].Id == lanId {
+			return lans.Items[i].Id
+		}
+	}
+	return ""
+}
